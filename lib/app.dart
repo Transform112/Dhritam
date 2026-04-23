@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+
 import 'theme/app_theme.dart';
 import 'shared/widgets/main_layout.dart';
 
@@ -7,13 +9,16 @@ class DhritamApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Dhritam',
-      theme: AppTheme.lightTheme, // Assuming you created this from the earlier step
-      darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system, // PRD rule: respect system settings
-      home: const MainLayout(),
-      debugShowCheckedModeBanner: false,
+    // Wrap the app to provide the foreground task context to the OS
+    return WithForegroundTask(
+      child: MaterialApp(
+        title: 'Dhritam',
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        themeMode: ThemeMode.system, 
+        home: const MainLayout(),
+        debugShowCheckedModeBanner: false,
+      ),
     );
   }
 }

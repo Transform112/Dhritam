@@ -52,6 +52,7 @@ dependencies:
   crypto: ^3.0.7
   fl_chart: ^1.2.0
   tflite_flutter: ^0.12.1
+  share_plus: ^13.1.0
 
 dev_dependencies:
   flutter_test:

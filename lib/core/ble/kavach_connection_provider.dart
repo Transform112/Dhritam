@@ -4,11 +4,13 @@ import 'dart:isolate';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import '../../shared/models/device_state.dart';
 import 'ble_processor_isolate.dart';
 import '../signal/signal_processor_isolate.dart';
 import '../../features/home/providers/rmssd_provider.dart';
+import 'foreground_task_handler.dart'; // Import the task handler we created
 
 const String kavachServiceUuid = "abcdef01-1234-5678-1234-56789abcdef0";
 const String kavachCharacteristicUuid = "abcdef02-1234-5678-1234-56789abcdef0"; 
@@ -141,6 +143,18 @@ class KavachConnectionNotifier extends Notifier<DeviceConnectionState> {
     _characteristicSubscription = ecgCharacteristic.onValueReceived.listen((value) {
       _bleIsolateSendPort?.send(value); 
     });
+
+    // CRITICAL FIX: Lock the app into memory so the OS doesn't kill it
+    if (await FlutterForegroundTask.isRunningService == false) {
+      // Request notification permission for Android 13+
+      await FlutterForegroundTask.requestNotificationPermission();
+      
+      await FlutterForegroundTask.startService(
+        notificationTitle: 'Dhritam is Active',
+        notificationText: 'Recording Kavach X data...',
+        callback: startCallback,
+      );
+    }
   }
 
   void _listenToConnectionState() {
@@ -164,6 +178,11 @@ class KavachConnectionNotifier extends Notifier<DeviceConnectionState> {
     BleProcessorIsolate.kill();
     _mainRmssdReceivePort?.close();
     SignalProcessorIsolate.kill();
+
+    // CRITICAL FIX: Release the OS wake lock
+    if (await FlutterForegroundTask.isRunningService) {
+      await FlutterForegroundTask.stopService();
+    }
 
     await _connectionSubscription?.cancel();
     if (_kavachDevice != null) {
