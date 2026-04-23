@@ -19,10 +19,8 @@ class BleIsolateInit {
 
 class BleProcessorIsolate {
   static Isolate? _isolate;
-  static SendPort? _bleSendPort; // Port to send raw packets from Main to this Isolate
+  static SendPort? _bleSendPort; 
 
-  /// Starts the isolate and returns the SendPort so the BLE connection manager
-  /// can stream raw Uint8List packets to it.
   static Future<SendPort> spawn(BleIsolateInit initData) async {
     final receivePort = ReceivePort();
     
@@ -32,7 +30,6 @@ class BleProcessorIsolate {
       debugName: 'BleProcessorIsolate',
     );
 
-    // Wait for the isolate to send back its listening port
     _bleSendPort = await receivePort.first as SendPort;
     return _bleSendPort!;
   }
@@ -44,7 +41,7 @@ class BleProcessorIsolate {
   }
 
   // ===========================================================================
-  // ISOLATE ENTRY POINT - NOTHING BELOW THIS LINE RUNS ON THE MAIN THREAD
+  // ISOLATE ENTRY POINT
   // ===========================================================================
 
   static void _isolateEntry(List<dynamic> args) {
@@ -52,40 +49,38 @@ class BleProcessorIsolate {
     final BleIsolateInit initData = args[1];
 
     final receivePort = ReceivePort();
-    isolateHandshakePort.send(receivePort.sendPort); // Complete handshake
+    isolateHandshakePort.send(receivePort.sendPort); 
 
-    // 1. Initialization
     final fileLock = Lock();
     int? lastSeqNum;
     int totalSamplesProcessed = 0;
     int packetCounter = 0;
     
-    // Batch buffer for the Signal Isolate (150 samples)
     List<int> sampleBatch = [];
 
-    // Open the "Sacred" CSV with append mode
     final File csvFile = File(initData.sessionFilePath);
     if (!csvFile.existsSync()) {
       csvFile.createSync(recursive: true);
-      // Write CSV Header
       csvFile.writeAsStringSync("timestamp_ms,sample_index,raw_adc_value,packet_seq,quality_flag\n");
     }
     
     final IOSink csvSink = csvFile.openWrite(mode: FileMode.append);
 
-    // 2. Packet Processing Loop
     receivePort.listen((message) {
       if (message == "CLOSE_SESSION") {
         csvSink.flush().then((_) => csvSink.close());
         return;
       }
 
-      if (message is! Uint8List) return;
+      // CRITICAL FIX: flutter_blue_plus sends List<int>, not Uint8List directly.
+      if (message is! List<int>) return; 
       
-      final Uint8List packet = message;
-      if (packet.length != 42) return; // Drop malformed packets immediately
+      final List<int> rawPacket = message;
+      if (rawPacket.length != 42) return; 
 
-      final ByteData byteData = ByteData.sublistView(packet);
+      // Convert to ByteData for safe extraction
+      final ByteData byteData = ByteData.sublistView(Uint8List.fromList(rawPacket));
+      
       final int currentSeqNum = byteData.getUint16(0, Endian.little);
       final int timestamp = DateTime.now().millisecondsSinceEpoch;
 
@@ -93,22 +88,19 @@ class BleProcessorIsolate {
 
       // 3. Gap Detection Logic
       if (lastSeqNum != null) {
-        int expectedSeq = (lastSeqNum! + 1) % 65536; // Sequence rolls over at 16-bit max
+        int expectedSeq = (lastSeqNum! + 1) % 65536; 
         
         if (currentSeqNum != expectedSeq) {
           int packetsMissed = (currentSeqNum - expectedSeq) % 65536;
-          if (packetsMissed < 0) packetsMissed += 65536; // Handle negative modulo
+          if (packetsMissed < 0) packetsMissed += 65536; 
 
-          // Cap massive gaps (e.g., device disconnected for 10 minutes) 
-          // to prevent memory exhaustion when generating padding.
-          if (packetsMissed > 1250) packetsMissed = 1250; // Cap at ~50 seconds of padding
+          if (packetsMissed > 1250) packetsMissed = 1250; 
 
-          // Insert zero-padded rows with quality_flag = 0
           for (int p = 0; p < packetsMissed; p++) {
             int missedSeq = (expectedSeq + p) % 65536;
             for (int s = 0; s < 20; s++) {
               csvBatchString.writeln("$timestamp,${totalSamplesProcessed++},0,$missedSeq,0");
-              sampleBatch.add(0); // Send 0s to the signal processor to maintain time alignment
+              sampleBatch.add(0); 
             }
           }
         }
@@ -118,13 +110,9 @@ class BleProcessorIsolate {
 
       // 4. Unpack 20 ECG Samples
       for (int i = 0; i < 20; i++) {
-        // Offset is 2 bytes (for seq num) + (i * 2 bytes per sample)
         final int sample = byteData.getInt16(2 + (i * 2), Endian.little);
         
-        // Write to CSV buffer (quality_flag = 1)
         csvBatchString.writeln("$timestamp,${totalSamplesProcessed++},$sample,$currentSeqNum,1");
-        
-        // Add to Signal Processor batch
         sampleBatch.add(sample);
       }
 
@@ -133,7 +121,6 @@ class BleProcessorIsolate {
         csvSink.write(csvBatchString.toString());
         packetCounter++;
         
-        // Flush physically to disk every 5 packets (~every 200ms)
         if (packetCounter % 5 == 0) {
           await csvSink.flush();
         }
@@ -141,12 +128,9 @@ class BleProcessorIsolate {
 
       // 6. Forward to Signal Processor Isolate
       if (sampleBatch.length >= 150) {
-        // Send a copy of exactly 150 samples. 
-        // If we padded zeros, it might be larger, so we slice it.
         final batchToSend = sampleBatch.sublist(0, 150);
         initData.signalSendPort.send(batchToSend);
         
-        // Keep any remaining samples for the next batch
         sampleBatch = sampleBatch.sublist(150); 
       }
     });

@@ -13,8 +13,11 @@ class DevicesScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Device Management'),
-        backgroundColor: AppTheme.bgOffWhite,
+        title: const Text('Device Management', style: TextStyle(fontWeight: FontWeight.w600)),
+        backgroundColor: Colors.transparent, // This removes the white box
+        elevation: 0,
+        scrolledUnderElevation: 0, // Stops Material 3 from injecting colors when scrolling
+        centerTitle: false,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),

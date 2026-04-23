@@ -9,8 +9,9 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final rmssdData = ref.watch(rmssdProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Determine Zone and Colors (Rule-based fallback per PRD)
+    // 1. Determine Zone and Colors based on RMSSD
     Color zoneColor = AppTheme.mutedGray;
     String zoneLabel = "Calibrating...";
     
@@ -32,61 +33,135 @@ class HomeScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dhritam'),
-        backgroundColor: AppTheme.bgOffWhite,
+        title: const Text('Dhritam', style: TextStyle(fontWeight: FontWeight.w600)),
+        backgroundColor: Colors.transparent,
         elevation: 0,
+        centerTitle: false,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // 1. Primary Status Card
-            Container(
+            // ==========================================
+            // PRIMARY STATUS CARD (Animated)
+            // ==========================================
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 800),
+              curve: Curves.easeInOut,
               width: double.infinity,
-              height: 180, // PRD Specification
+              padding: const EdgeInsets.symmetric(vertical: 32),
               decoration: BoxDecoration(
-                color: AppTheme.cardWhite,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: zoneColor.withValues(alpha: 0.3), width: 2),
+                color: isDark ? AppTheme.darkCard : AppTheme.cardWhite,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: zoneColor.withValues(alpha: 0.3), 
+                  width: 2
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: zoneColor.withValues(alpha: 0.1),
-                    blurRadius: 10,
+                    color: zoneColor.withValues(alpha: 0.15),
+                    blurRadius: 20,
                     spreadRadius: 2,
+                    offset: const Offset(0, 8),
                   )
                 ],
               ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    rmssdData == null || !rmssdData.isReliable 
-                        ? "--" 
-                        : rmssdData.rmssd.toStringAsFixed(0),
-                    style: TextStyle(
-                      fontSize: 52, // Display font PRD spec
-                      fontWeight: FontWeight.bold,
-                      color: zoneColor,
+                  // Animated RMSSD Number
+                  TweenAnimationBuilder<double>(
+                    tween: Tween<double>(
+                      begin: 0.0, 
+                      end: (rmssdData != null && rmssdData.isReliable) ? rmssdData.rmssd : 0.0
+                    ),
+                    duration: const Duration(milliseconds: 1500),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, value, child) {
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            rmssdData == null || !rmssdData.isReliable 
+                                ? "--" 
+                                : value.toStringAsFixed(0),
+                            style: TextStyle(
+                              fontSize: 72, 
+                              fontWeight: FontWeight.w800,
+                              color: zoneColor,
+                              height: 1.0,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            "ms",
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w600,
+                              color: zoneColor.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                  
+                  const SizedBox(height: 8),
+                  
+                  // Zone Label
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 500),
+                    child: Text(
+                      zoneLabel,
+                      key: ValueKey<String>(zoneLabel),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: isDark ? Colors.white : AppTheme.textDark,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    zoneLabel,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.textDark,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    rmssdData == null 
-                        ? "Collecting 30 seconds of data..." 
-                        : "Based on ${rmssdData.cleanRrCount} clean beats",
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppTheme.mutedGray,
-                    ),
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Heart Rate & Quality Metrics Row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // BPM
+                      const Icon(Icons.favorite, color: AppTheme.stressRed, size: 18),
+                      const SizedBox(width: 6),
+                      Text(
+                        rmssdData == null || !rmssdData.isReliable 
+                            ? "-- BPM" 
+                            : "${rmssdData.currentBpm} BPM",
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.mutedGray,
+                        ),
+                      ),
+                      
+                      const SizedBox(width: 16),
+                      Container(height: 16, width: 1, color: AppTheme.mutedGray.withValues(alpha: 0.3)),
+                      const SizedBox(width: 16),
+                      
+                      // Data Quality
+                      const Icon(Icons.analytics_outlined, color: AppTheme.primaryPurple, size: 18),
+                      const SizedBox(width: 6),
+                      Text(
+                        rmssdData == null 
+                            ? "Collecting data..." 
+                            : "${rmssdData.cleanRrCount} valid beats",
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: AppTheme.mutedGray,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -94,13 +169,16 @@ class HomeScreen extends ConsumerWidget {
             
             const SizedBox(height: 24),
             
-            // Placeholder for the AI Assistant Message Card (Week 4)
+            // ==========================================
+            // AI ASSISTANT PLACEHOLDER (Week 4)
+            // ==========================================
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: AppTheme.bgOffWhite,
+                color: isDark ? AppTheme.darkCard : AppTheme.bgOffWhite,
                 borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.mutedGray.withValues(alpha: 0.1)),
               ),
               child: Row(
                 children: [
@@ -112,7 +190,7 @@ class HomeScreen extends ConsumerWidget {
                   const Expanded(
                     child: Text(
                       "Connect your Kavach X device to begin analyzing your state.",
-                      style: TextStyle(fontSize: 15, color: AppTheme.textDark),
+                      style: TextStyle(fontSize: 15, height: 1.4),
                     ),
                   ),
                 ],

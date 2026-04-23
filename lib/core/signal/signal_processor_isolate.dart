@@ -1,6 +1,8 @@
 import 'dart:isolate';
 import 'dart:math';
 
+import 'biquad_filter.dart'; // Import the DSP engine we just built
+
 /// Payload to initialize the Signal Processor Isolate
 class SignalIsolateInit {
   final SendPort mainStateSendPort;
@@ -13,6 +15,7 @@ class RmssdResult {
   final double rmssd;
   final double sd1;
   final double sd2;
+  final int currentBpm; // NEW: Added Heart Rate
   final int cleanRrCount;
   final bool isReliable;
 
@@ -20,6 +23,7 @@ class RmssdResult {
     required this.rmssd,
     required this.sd1,
     required this.sd2,
+    required this.currentBpm,
     required this.cleanRrCount,
     required this.isReliable,
   });
@@ -29,7 +33,6 @@ class SignalProcessorIsolate {
   static Isolate? _isolate;
   static SendPort? _signalSendPort;
 
-  /// Starts the isolate and returns the SendPort for the BleProcessor to use
   static Future<SendPort> spawn(SignalIsolateInit initData) async {
     final receivePort = ReceivePort();
     
@@ -50,7 +53,7 @@ class SignalProcessorIsolate {
   }
 
   // ===========================================================================
-  // ISOLATE ENTRY POINT - ALL HEAVY MATH RUNS HERE
+  // ISOLATE ENTRY POINT - PAN-TOMPKINS ENGINE
   // ===========================================================================
 
   static void _isolateEntry(List<dynamic> args) {
@@ -60,29 +63,38 @@ class SignalProcessorIsolate {
     final receivePort = ReceivePort();
     handshakePort.send(receivePort.sendPort);
 
-    // --- State for 30-second window (15,000 samples @ 500Hz) ---
+    // --- Instantiate the Biquad Filters ---
+    final notchFilter = KavachFilters.create50HzNotch();
+    final bandpassFilter = KavachFilters.createEcgBandpass();
+
+    // --- Global Window State (15,000 samples = 30s) ---
     int samplesInCurrentWindow = 0;
     List<double> currentWindowRrIntervals = [];
     
-    // --- Pan-Tompkins State ---
-    // Moving window for integration (150ms = 75 samples at 500Hz)
+    // --- Pan-Tompkins: Derivative Buffer ---
+    // Holds the last 5 samples for the 5-point derivative
+    List<double> derivBuffer = List.filled(5, 0.0);
+    
+    // --- Pan-Tompkins: Moving Window Integration (MWI) ---
+    // 150ms window at 500Hz = 75 samples
     final int mwLength = 75;
     List<double> mwBuffer = List.filled(mwLength, 0.0);
     int mwIndex = 0;
+    double mwSum = 0.0; // Running sum optimization (O(1) instead of O(N))
     
-    // Peak detection state
-    double adaptiveThreshold = 0.0;
-    List<double> recentPeaks = [];
+    // --- Pan-Tompkins: Adaptive Peak Detection ---
+    double spki = 0.0; // Signal Peak estimate
+    double npki = 0.0; // Noise Peak estimate
+    double threshold1 = 0.0; // Primary detection threshold
+    
+    double mwiPrev = 0.0;
+    double mwiPrev2 = 0.0;
+    
     int samplesSinceLastPeak = 0;
-    final int refractoryPeriod = 100; // 200ms at 500Hz (cannot have 2 beats this close)
-
-    // Filter state (Previous inputs/outputs for IIR biquads)
-    // Note: In production, insert your exact pre-computed SciPy coefficients here.
-    // FIX: Removed unused y2 variable
-    double x1 = 0, x2 = 0;
+    final int refractoryPeriod = 100; // 200ms at 500Hz
 
     receivePort.listen((message) {
-      if (message is! List<int>) return; // Expecting batches of 150 ints
+      if (message is! List<int>) return; 
       
       final List<int> rawBatch = message;
 
@@ -90,59 +102,65 @@ class SignalProcessorIsolate {
         samplesInCurrentWindow++;
         samplesSinceLastPeak++;
 
-        // 1. Convert to mV (Optional, assuming 3.3V, 12-bit ADC centered at 1.65V)
+        // 1. Convert ADC to mV
         double signal = (rawBatch[i] / 4095.0) * 3300.0 - 1650.0;
 
-        // 2. Apply Filters (Conceptual Biquad Application)
-        // Apply 0.5-40Hz Bandpass and 50Hz Notch. 
-        // using simple placeholder biquad math for structural completeness:
-        double filtered = signal; // filtered = b0*signal + b1*x1 + b2*x2 - a1*y1 - a2*y2...
-        
-        // Update filter state
-        x2 = x1; x1 = signal;
+        // 2. Apply IIR Biquad Cascade
+        double notched = notchFilter.process(signal);
+        double filtered = bandpassFilter.process(notched);
 
-        // 3. Pan-Tompkins: Derivative & Squaring
-        // Simplified derivative for real-time: y(nT) = (1/8T)[-x(nT - 2T) - 2x(nT - T) + 2x(nT + T) + x(nT + 2T)]
-        // Here we'll use a fast sequential approximation:
-        double derivative = filtered - x2; 
+        // 3. PT Derivative: H(z) = (1/8T)(-z^-2 - 2z^-1 + 2z^1 + z^2)
+        derivBuffer.insert(0, filtered);
+        derivBuffer.removeLast();
+        double derivative = (2.0 * derivBuffer[0] + derivBuffer[1] - derivBuffer[3] - 2.0 * derivBuffer[4]) / 8.0;
+        
+        // 4. PT Squaring
         double squared = derivative * derivative;
 
-        // 4. Pan-Tompkins: Moving Window Integration
+        // 5. PT Moving Window Integration (Running Sum)
+        mwSum -= mwBuffer[mwIndex];
         mwBuffer[mwIndex] = squared;
+        mwSum += squared;
         mwIndex = (mwIndex + 1) % mwLength;
-        double integrated = mwBuffer.reduce((a, b) => a + b) / mwLength;
+        
+        double mwi = mwSum / mwLength;
 
-        // 5. Adaptive Thresholding & Peak Detection
-        if (samplesSinceLastPeak > refractoryPeriod) {
-          if (integrated > adaptiveThreshold) {
-            // R-PEAK DETECTED!
-            
-            // Calculate RR interval in milliseconds
+        // 6. PT Adaptive Thresholding & Peak Search
+        // Check if the PREVIOUS sample was a local maximum
+        bool isLocalMax = (mwiPrev > mwi) && (mwiPrev > mwiPrev2);
+
+        if (isLocalMax && samplesSinceLastPeak > refractoryPeriod) {
+          if (mwiPrev > threshold1) {
+            // Valid R-Peak Detected!
+            spki = 0.125 * mwiPrev + 0.875 * spki;
+            threshold1 = npki + 0.25 * (spki - npki);
+
             double rrIntervalMs = (samplesSinceLastPeak / 500.0) * 1000.0;
             
-            // Filter physiologically implausible bounds (300ms - 2000ms)
+            // Physiological filter
             if (rrIntervalMs > 300 && rrIntervalMs < 2000) {
               currentWindowRrIntervals.add(rrIntervalMs);
             }
-
-            // Update threshold (simplified: 50% of recent peak average)
-            recentPeaks.add(integrated);
-            if (recentPeaks.length > 8) recentPeaks.removeAt(0);
-            adaptiveThreshold = (recentPeaks.reduce((a, b) => a + b) / recentPeaks.length) * 0.5;
-
-            // Reset counter
-            samplesSinceLastPeak = 0;
+            
+            samplesSinceLastPeak = 0; // Reset refractory timer
+          } else {
+            // Noise Peak (Local max, but below signal threshold)
+            npki = 0.125 * mwiPrev + 0.875 * npki;
+            threshold1 = npki + 0.25 * (spki - npki);
           }
-        } else {
-          // Decay threshold slowly if no peaks found to avoid getting stuck
-          adaptiveThreshold *= 0.999;
+        } else if (!isLocalMax && samplesSinceLastPeak > refractoryPeriod * 3) {
+          // Fallback: Slowly lower threshold if no peaks are found for a long time
+          threshold1 *= 0.999;
         }
 
-        // 6. 30-Second Window Check (15,000 samples)
+        // Shift MWI history for next loop
+        mwiPrev2 = mwiPrev;
+        mwiPrev = mwi;
+
+        // 7. 30-Second Epoch Evaluation
         if (samplesInCurrentWindow >= 15000) {
           _computeAndSendRmssd(currentWindowRrIntervals, initData.mainStateSendPort);
           
-          // Slide the window: Reset counters but keep PT state alive
           samplesInCurrentWindow = 0;
           currentWindowRrIntervals.clear();
         }
@@ -152,22 +170,21 @@ class SignalProcessorIsolate {
 
   static void _computeAndSendRmssd(List<double> rrIntervals, SendPort mainPort) {
     if (rrIntervals.length < 20) {
-      // PRD: Never display an RMSSD computed from fewer than 20 clean RR intervals.
       mainPort.send(RmssdResult(
-        rmssd: 0, sd1: 0, sd2: 0, cleanRrCount: rrIntervals.length, isReliable: false,
+        rmssd: 0, sd1: 0, sd2: 0, currentBpm: 0, cleanRrCount: rrIntervals.length, isReliable: false,
       ));
       return;
     }
 
-    // Calculate RMSSD
-    double sumOfSquaredDifferences = 0.0;
+    // RMSSD
+    double sumSqDiff = 0.0;
     for (int i = 0; i < rrIntervals.length - 1; i++) {
       double diff = rrIntervals[i + 1] - rrIntervals[i];
-      sumOfSquaredDifferences += (diff * diff);
+      sumSqDiff += (diff * diff);
     }
-    double rmssd = sqrt(sumOfSquaredDifferences / (rrIntervals.length - 1));
+    double rmssd = sqrt(sumSqDiff / (rrIntervals.length - 1));
 
-    // Calculate SDNN (Standard Deviation of NN intervals) needed for SD2
+    // SDNN
     double meanRr = rrIntervals.reduce((a, b) => a + b) / rrIntervals.length;
     double sumSqDiffMean = 0.0;
     for (double rr in rrIntervals) {
@@ -175,17 +192,19 @@ class SignalProcessorIsolate {
     }
     double sdnn = sqrt(sumSqDiffMean / rrIntervals.length);
 
-    // Calculate SD1 and SD2 (Poincaré plot metrics for the AI Model)
+    // Poincaré 
     double sd1 = sqrt(0.5 * pow(rmssd, 2));
-    // SD2 calculation safeguards against NaN if SDNN is somehow smaller
     double sd2Inner = (2 * pow(sdnn, 2)) - (0.5 * pow(rmssd, 2));
     double sd2 = sd2Inner > 0 ? sqrt(sd2Inner) : 0.0;
 
-    // Send back to the Riverpod provider on the main thread
+    // Heart Rate calculation
+    int bpm = (60000.0 / meanRr).round();
+
     mainPort.send(RmssdResult(
       rmssd: rmssd,
       sd1: sd1,
       sd2: sd2,
+      currentBpm: bpm,
       cleanRrCount: rrIntervals.length,
       isReliable: true,
     ));
