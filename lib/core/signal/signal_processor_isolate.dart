@@ -73,7 +73,7 @@ class SignalProcessorIsolate {
     
     // --- Pan-Tompkins: Derivative Buffer ---
     // Holds the last 5 samples for the 5-point derivative
-    List<double> derivBuffer = List.filled(5, 0.0);
+    List<double> derivBuffer = List.filled(5, 0.0, growable: true);
     
     // --- Pan-Tompkins: Moving Window Integration (MWI) ---
     // 150ms window at 500Hz = 75 samples
@@ -158,7 +158,7 @@ class SignalProcessorIsolate {
         mwiPrev = mwi;
 
         // 7. 30-Second Epoch Evaluation
-        if (samplesInCurrentWindow >= 15000) {
+        if (samplesInCurrentWindow >= 2500) {
           _computeAndSendRmssd(currentWindowRrIntervals, initData.mainStateSendPort);
           
           samplesInCurrentWindow = 0;

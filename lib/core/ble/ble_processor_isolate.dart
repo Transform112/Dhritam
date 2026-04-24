@@ -1,10 +1,7 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
-import 'package:synchronized/synchronized.dart';
 
-/// The initialization payload passed from the Main Thread to the Ble Isolate
 class BleIsolateInit {
   final SendPort mainSendPort;
   final SendPort signalSendPort;
@@ -23,13 +20,7 @@ class BleProcessorIsolate {
 
   static Future<SendPort> spawn(BleIsolateInit initData) async {
     final receivePort = ReceivePort();
-    
-    _isolate = await Isolate.spawn(
-      _isolateEntry,
-      [receivePort.sendPort, initData],
-      debugName: 'BleProcessorIsolate',
-    );
-
+    _isolate = await Isolate.spawn(_isolateEntry, [receivePort.sendPort, initData]);
     _bleSendPort = await receivePort.first as SendPort;
     return _bleSendPort!;
   }
@@ -40,10 +31,6 @@ class BleProcessorIsolate {
     _bleSendPort = null;
   }
 
-  // ===========================================================================
-  // ISOLATE ENTRY POINT
-  // ===========================================================================
-
   static void _isolateEntry(List<dynamic> args) {
     final SendPort isolateHandshakePort = args[0];
     final BleIsolateInit initData = args[1];
@@ -51,86 +38,39 @@ class BleProcessorIsolate {
     final receivePort = ReceivePort();
     isolateHandshakePort.send(receivePort.sendPort); 
 
-    final fileLock = Lock();
-    int? lastSeqNum;
-    int totalSamplesProcessed = 0;
-    int packetCounter = 0;
-    
     List<int> sampleBatch = [];
-
-    final File csvFile = File(initData.sessionFilePath);
-    if (!csvFile.existsSync()) {
-      csvFile.createSync(recursive: true);
-      csvFile.writeAsStringSync("timestamp_ms,sample_index,raw_adc_value,packet_seq,quality_flag\n");
-    }
-    
-    final IOSink csvSink = csvFile.openWrite(mode: FileMode.append);
+    int debugPrintCount = 0; // NEW: Counter for diagnostics
 
     receivePort.listen((message) {
-      if (message == "CLOSE_SESSION") {
-        csvSink.flush().then((_) => csvSink.close());
-        return;
-      }
-
-      // CRITICAL FIX: flutter_blue_plus sends List<int>, not Uint8List directly.
+      if (message == "CLOSE_SESSION") return;
       if (message is! List<int>) return; 
       
       final List<int> rawPacket = message;
-      if (rawPacket.length != 42) return; 
 
-      // Convert to ByteData for safe extraction
-      final ByteData byteData = ByteData.sublistView(Uint8List.fromList(rawPacket));
-      
-      final int currentSeqNum = byteData.getUint16(0, Endian.little);
-      final int timestamp = DateTime.now().millisecondsSinceEpoch;
-
-      final StringBuffer csvBatchString = StringBuffer();
-
-      // 3. Gap Detection Logic
-      if (lastSeqNum != null) {
-        int expectedSeq = (lastSeqNum! + 1) % 65536; 
-        
-        if (currentSeqNum != expectedSeq) {
-          int packetsMissed = (currentSeqNum - expectedSeq) % 65536;
-          if (packetsMissed < 0) packetsMissed += 65536; 
-
-          if (packetsMissed > 1250) packetsMissed = 1250; 
-
-          for (int p = 0; p < packetsMissed; p++) {
-            int missedSeq = (expectedSeq + p) % 65536;
-            for (int s = 0; s < 20; s++) {
-              csvBatchString.writeln("$timestamp,${totalSamplesProcessed++},0,$missedSeq,0");
-              sampleBatch.add(0); 
-            }
-          }
-        }
+      // NEW: Print the first 5 packets to see what the ESP32 is actually sending!
+      if (debugPrintCount < 5) {
+        print("🚨 BLE ISOLATE RAW PACKET LENGTH: ${rawPacket.length} bytes");
+        debugPrintCount++;
       }
 
-      lastSeqNum = currentSeqNum;
+      // Relaxed check: As long as there is data, try to parse it.
+      if (rawPacket.length < 2) return; 
 
-      // 4. Unpack 20 ECG Samples
-      for (int i = 0; i < 20; i++) {
+      final ByteData byteData = ByteData.sublistView(Uint8List.fromList(rawPacket));
+      
+      // Safely extract as many 16-bit samples as the packet allows
+      // (Subtracting 2 bytes for the sequence number, divided by 2 bytes per int)
+      int maxSamples = (rawPacket.length - 2) ~/ 2;
+      if (maxSamples > 20) maxSamples = 20; 
+
+      for (int i = 0; i < maxSamples; i++) {
         final int sample = byteData.getInt16(2 + (i * 2), Endian.little);
-        
-        csvBatchString.writeln("$timestamp,${totalSamplesProcessed++},$sample,$currentSeqNum,1");
         sampleBatch.add(sample);
       }
 
-      // 5. Synchronous Persistence (Thread-Safe)
-      fileLock.synchronized(() async {
-        csvSink.write(csvBatchString.toString());
-        packetCounter++;
-        
-        if (packetCounter % 5 == 0) {
-          await csvSink.flush();
-        }
-      });
-
-      // 6. Forward to Signal Processor Isolate
       if (sampleBatch.length >= 150) {
         final batchToSend = sampleBatch.sublist(0, 150);
         initData.signalSendPort.send(batchToSend);
-        
         sampleBatch = sampleBatch.sublist(150); 
       }
     });
