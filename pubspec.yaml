@@ -30,7 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
+  
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
@@ -44,8 +44,6 @@ dependencies:
   flutter_foreground_task: ^9.2.2
   workmanager: ^0.9.0+3
   synchronized: ^3.4.0+1
-  hive: ^2.2.3
-  hive_flutter: ^1.1.0
   path_provider: ^2.1.5
   drift: ^2.32.1
   sqlite3_flutter_libs: ^0.6.0+eol
@@ -53,11 +51,12 @@ dependencies:
   fl_chart: ^1.2.0
   tflite_flutter: ^0.12.1
   share_plus: ^13.1.0
+  path: ^1.9.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
+  
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your

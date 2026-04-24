@@ -1,7 +1,11 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:fl_chart/fl_chart.dart';
+
 import '../../theme/app_theme.dart';
 import 'providers/rmssd_provider.dart';
+import 'providers/live_chart_provider.dart'; // NEW
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -9,9 +13,9 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final rmssdData = ref.watch(rmssdProvider);
+    final liveChartData = ref.watch(liveChartProvider); // NEW
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // 1. Determine Zone and Colors based on RMSSD
     Color zoneColor = AppTheme.mutedGray;
     String zoneLabel = "Calibrating...";
     
@@ -38,7 +42,7 @@ class HomeScreen extends ConsumerWidget {
         elevation: 0,
         centerTitle: false,
       ),
-      body: Padding(
+      body: SingleChildScrollView( // Added scrollview to fit everything safely
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
@@ -53,10 +57,7 @@ class HomeScreen extends ConsumerWidget {
               decoration: BoxDecoration(
                 color: isDark ? AppTheme.darkCard : AppTheme.cardWhite,
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(
-                  color: zoneColor.withValues(alpha: 0.3), 
-                  width: 2
-                ),
+                border: Border.all(color: zoneColor.withValues(alpha: 0.3), width: 2),
                 boxShadow: [
                   BoxShadow(
                     color: zoneColor.withValues(alpha: 0.15),
@@ -69,12 +70,8 @@ class HomeScreen extends ConsumerWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Animated RMSSD Number
                   TweenAnimationBuilder<double>(
-                    tween: Tween<double>(
-                      begin: 0.0, 
-                      end: (rmssdData != null && rmssdData.isReliable) ? rmssdData.rmssd : 0.0
-                    ),
+                    tween: Tween<double>(begin: 0.0, end: (rmssdData != null && rmssdData.isReliable) ? rmssdData.rmssd : 0.0),
                     duration: const Duration(milliseconds: 1500),
                     curve: Curves.easeOutCubic,
                     builder: (context, value, child) {
@@ -84,82 +81,33 @@ class HomeScreen extends ConsumerWidget {
                         textBaseline: TextBaseline.alphabetic,
                         children: [
                           Text(
-                            rmssdData == null || !rmssdData.isReliable 
-                                ? "--" 
-                                : value.toStringAsFixed(0),
-                            style: TextStyle(
-                              fontSize: 72, 
-                              fontWeight: FontWeight.w800,
-                              color: zoneColor,
-                              height: 1.0,
-                            ),
+                            rmssdData == null || !rmssdData.isReliable ? "--" : value.toStringAsFixed(0),
+                            style: TextStyle(fontSize: 72, fontWeight: FontWeight.w800, color: zoneColor, height: 1.0),
                           ),
                           const SizedBox(width: 4),
-                          Text(
-                            "ms",
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.w600,
-                              color: zoneColor.withValues(alpha: 0.7),
-                            ),
-                          ),
+                          Text("ms", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600, color: zoneColor.withValues(alpha: 0.7))),
                         ],
                       );
                     },
                   ),
-                  
                   const SizedBox(height: 8),
-                  
-                  // Zone Label
                   AnimatedSwitcher(
                     duration: const Duration(milliseconds: 500),
                     child: Text(
                       zoneLabel,
                       key: ValueKey<String>(zoneLabel),
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: isDark ? Colors.white : AppTheme.textDark,
-                      ),
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: isDark ? Colors.white : AppTheme.textDark),
                     ),
                   ),
-                  
                   const SizedBox(height: 24),
-                  
-                  // Heart Rate & Quality Metrics Row
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // BPM
                       const Icon(Icons.favorite, color: AppTheme.stressRed, size: 18),
                       const SizedBox(width: 6),
                       Text(
-                        rmssdData == null || !rmssdData.isReliable 
-                            ? "-- BPM" 
-                            : "${rmssdData.currentBpm} BPM",
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.mutedGray,
-                        ),
-                      ),
-                      
-                      const SizedBox(width: 16),
-                      Container(height: 16, width: 1, color: AppTheme.mutedGray.withValues(alpha: 0.3)),
-                      const SizedBox(width: 16),
-                      
-                      // Data Quality
-                      const Icon(Icons.analytics_outlined, color: AppTheme.primaryPurple, size: 18),
-                      const SizedBox(width: 6),
-                      Text(
-                        rmssdData == null 
-                            ? "Collecting data..." 
-                            : "${rmssdData.cleanRrCount} valid beats",
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                          color: AppTheme.mutedGray,
-                        ),
+                        rmssdData == null || !rmssdData.isReliable ? "-- BPM" : "${rmssdData.currentBpm} BPM",
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.mutedGray),
                       ),
                     ],
                   ),
@@ -168,6 +116,65 @@ class HomeScreen extends ConsumerWidget {
             ),
             
             const SizedBox(height: 24),
+
+            // ==========================================
+            // LIVE TIMELINE CHART (Horizontal Scroll)
+            // ==========================================
+            if (liveChartData.isNotEmpty) ...[
+              Container(
+                height: 200,
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? AppTheme.darkCard : AppTheme.cardWhite,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: AppTheme.mutedGray.withValues(alpha: 0.1)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("Live Session Trend", style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      // The SingleChildScrollView enables the infinite horizontal scrolling
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        reverse: true, // Auto-scrolls to the newest data on the right
+                        child: SizedBox(
+                          // Dynamically expand width based on data points, min 300px
+                          width: math.max(MediaQuery.of(context).size.width - 64, liveChartData.length * 40.0),
+                          child: LineChart(
+                            LineChartData(
+                              minY: 0,
+                              maxY: 120, // Max reasonable RMSSD
+                              gridData: const FlGridData(show: false),
+                              titlesData: const FlTitlesData(show: false), // Hide axes for a clean look
+                              borderData: FlBorderData(show: false),
+                              lineBarsData: [
+                                LineChartBarData(
+                                  spots: liveChartData,
+                                  isCurved: true,
+                                  curveSmoothness: 0.3,
+                                  color: zoneColor, // Matches the current stress zone
+                                  barWidth: 4,
+                                  isStrokeCapRound: true,
+                                  dotData: const FlDotData(show: true), // Show dots so individual 30s windows are visible
+                                  belowBarData: BarAreaData(
+                                    show: true,
+                                    color: zoneColor.withValues(alpha: 0.1),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
             
             // ==========================================
             // AI ASSISTANT PLACEHOLDER (Week 4)

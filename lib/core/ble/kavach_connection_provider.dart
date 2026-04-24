@@ -5,18 +5,19 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:drift/drift.dart' show Value; // Required for Drift's copyWith method
 
 import '../../shared/models/device_state.dart';
+import '../db/app_database.dart'; // Your new Drift Database singleton
 import 'ble_processor_isolate.dart';
 import '../signal/signal_processor_isolate.dart';
 import '../../features/home/providers/rmssd_provider.dart';
-import 'foreground_task_handler.dart'; // Import the task handler we created
+import 'foreground_task_handler.dart'; 
 
 const String kavachServiceUuid = "abcdef01-1234-5678-1234-56789abcdef0";
 const String kavachCharacteristicUuid = "abcdef02-1234-5678-1234-56789abcdef0"; 
 const String kavachDeviceName = "Kavach X";
 
-// Upgraded to NotifierProvider
 final kavachConnectionProvider = NotifierProvider<KavachConnectionNotifier, DeviceConnectionState>(() {
   return KavachConnectionNotifier();
 });
@@ -29,10 +30,12 @@ class KavachConnectionNotifier extends Notifier<DeviceConnectionState> {
   
   SendPort? _bleIsolateSendPort;
   ReceivePort? _mainRmssdReceivePort;
+  
+  // Track the active SQLite session ID
+  String? _currentSessionId;
 
   @override
   DeviceConnectionState build() {
-    // Replacement for the old dispose() method
     ref.onDispose(() {
       disconnect();
     });
@@ -74,7 +77,6 @@ class KavachConnectionNotifier extends Notifier<DeviceConnectionState> {
     state = DeviceConnectionState.connecting;
 
     try {
-      // CRITICAL FIX: The new flutter_blue_plus API requires the license parameter
       await device.connect(autoConnect: false, timeout: const Duration(seconds: 10), license: License.free);
       
       if (FlutterBluePlus.adapterStateNow == BluetoothAdapterState.on) {
@@ -98,14 +100,36 @@ class KavachConnectionNotifier extends Notifier<DeviceConnectionState> {
     }
     
     final now = DateTime.now();
+    
+    // 1. Initialize the SQLite Session
+    _currentSessionId = "session_${now.millisecondsSinceEpoch}";
+    final newSession = Session(
+      id: _currentSessionId!,
+      startTime: now,
+    );
+    await appDb.createSession(newSession); // Write to SQLite
+
     final timestamp = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}-${now.minute.toString().padLeft(2, '0')}-${now.second.toString().padLeft(2, '0')}";
     final filePath = '${sessionDir.path}/${timestamp}_session.csv';
 
     _mainRmssdReceivePort = ReceivePort();
     _mainRmssdReceivePort!.listen((message) {
       if (message is RmssdResult) {
-        // Correctly update the new NotifierProvider
+        // Update the UI
         ref.read(rmssdProvider.notifier).updateState(message);
+
+        // 2. Persist the 30-second window to SQLite
+        if (_currentSessionId != null && message.isReliable) {
+          final window = HrvWindow(
+            id: 0, // Drift will overwrite this 0 with the actual auto-incremented ID
+            sessionId: _currentSessionId!,
+            timestamp: DateTime.now(),
+            rmssd: message.rmssd,
+            bpm: message.currentBpm,
+            isReliable: message.isReliable,
+          );
+          appDb.addHrvWindow(window);
+        }
       }
     });
 
@@ -135,20 +159,15 @@ class KavachConnectionNotifier extends Notifier<DeviceConnectionState> {
       }
     }
 
-    if (ecgCharacteristic == null) {
-      throw Exception("ECG Characteristic not found on device.");
-    }
+    if (ecgCharacteristic == null) throw Exception("ECG Characteristic not found on device.");
 
     await ecgCharacteristic.setNotifyValue(true);
     _characteristicSubscription = ecgCharacteristic.onValueReceived.listen((value) {
       _bleIsolateSendPort?.send(value); 
     });
 
-    // CRITICAL FIX: Lock the app into memory so the OS doesn't kill it
     if (await FlutterForegroundTask.isRunningService == false) {
-      // Request notification permission for Android 13+
       await FlutterForegroundTask.requestNotificationPermission();
-      
       await FlutterForegroundTask.startService(
         notificationTitle: 'Dhritam is Active',
         notificationText: 'Recording Kavach X data...',
@@ -179,7 +198,6 @@ class KavachConnectionNotifier extends Notifier<DeviceConnectionState> {
     _mainRmssdReceivePort?.close();
     SignalProcessorIsolate.kill();
 
-    // CRITICAL FIX: Release the OS wake lock
     if (await FlutterForegroundTask.isRunningService) {
       await FlutterForegroundTask.stopService();
     }
@@ -189,6 +207,38 @@ class KavachConnectionNotifier extends Notifier<DeviceConnectionState> {
       await _kavachDevice!.disconnect();
     }
     
+    // 3. Close the DB Session and calculate the final averages
+    if (_currentSessionId != null) {
+      try {
+        final session = await appDb.getSession(_currentSessionId!);
+        final windows = await appDb.getWindowsForSession(_currentSessionId!);
+        
+        double avgRmssd = 0.0;
+        double calculatedQuality = 0.0; 
+        
+        if (windows.isNotEmpty) {
+          // Calculate Mean RMSSD
+          double totalRmssd = windows.fold(0.0, (sum, w) => sum + w.rmssd);
+          avgRmssd = totalRmssd / windows.length;
+          
+          // Calculate Real Signal Quality (Valid windows / Total windows)
+          int reliableWindows = windows.where((w) => w.isReliable).length;
+          calculatedQuality = (reliableWindows / windows.length) * 100.0;
+        }
+
+        await appDb.updateSession(
+          session.copyWith(
+            endTime: Value(DateTime.now()),
+            averageRmssd: Value(avgRmssd),
+            signalQuality: Value(calculatedQuality), // Real math applied!
+          )
+        );
+      } catch (e) {
+        // Failsafe
+      }
+      _currentSessionId = null;
+    }
+
     ref.read(rmssdProvider.notifier).updateState(null);
     state = DeviceConnectionState.disconnected;
   }
