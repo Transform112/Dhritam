@@ -13,6 +13,7 @@ import 'ble_processor_isolate.dart';
 import '../signal/signal_processor_isolate.dart';
 import '../../features/home/providers/rmssd_provider.dart';
 import 'foreground_task_handler.dart'; 
+import '../../features/home/providers/raw_recording_provider.dart'; // NEW
 
 const String kavachServiceUuid = "abcdef01-1234-5678-1234-56789abcdef0";
 const String kavachCharacteristicUuid = "abcdef02-1234-5678-1234-56789abcdef0"; 
@@ -109,9 +110,6 @@ class KavachConnectionNotifier extends Notifier<DeviceConnectionState> {
     );
     await appDb.createSession(newSession); // Write to SQLite
 
-    final timestamp = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}-${now.minute.toString().padLeft(2, '0')}-${now.second.toString().padLeft(2, '0')}";
-    final filePath = '${sessionDir.path}/${timestamp}_session.csv';
-
     _mainRmssdReceivePort = ReceivePort();
     _mainRmssdReceivePort!.listen((message) {
       if (message is RmssdResult) {
@@ -141,7 +139,6 @@ class KavachConnectionNotifier extends Notifier<DeviceConnectionState> {
       BleIsolateInit(
         mainSendPort: ReceivePort().sendPort, 
         signalSendPort: signalSendPort, 
-        sessionFilePath: filePath,
       ),
     );
 
@@ -240,11 +237,30 @@ class KavachConnectionNotifier extends Notifier<DeviceConnectionState> {
     }
 
     ref.read(rmssdProvider.notifier).updateState(null);
+    ref.read(rawRecordingProvider.notifier).setRecording(false);
     state = DeviceConnectionState.disconnected;
   }
 
   Future<void> _stopScan() async {
     await FlutterBluePlus.stopScan();
     await _scanSubscription?.cancel();
+  }
+
+  Future<void> startRawRecording() async {
+    if (state != DeviceConnectionState.connected) return;
+
+    final directory = await getApplicationDocumentsDirectory();
+    final sessionDir = Directory('${directory.path}/sessions');
+    if (!sessionDir.existsSync()) sessionDir.createSync(recursive: true);
+
+    final now = DateTime.now();
+    final timestamp = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}-${now.minute.toString().padLeft(2, '0')}-${now.second.toString().padLeft(2, '0')}";
+    final filePath = '${sessionDir.path}/ML_DATA_$timestamp.csv';
+
+    _bleIsolateSendPort?.send("START_RECORDING|$filePath");
+  }
+
+  void stopRawRecording() {
+    _bleIsolateSendPort?.send("STOP_RECORDING");
   }
 }

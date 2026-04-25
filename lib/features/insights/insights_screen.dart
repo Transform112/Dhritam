@@ -1,3 +1,7 @@
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -12,21 +16,66 @@ class InsightsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     // Watch our new SQLite providers
     final sessionsAsync = ref.watch(todaysSessionsProvider);
     final windowsAsync = ref.watch(todaysWindowsProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Daily Insights', style: TextStyle(fontWeight: FontWeight.w600)),
-        backgroundColor: Colors.transparent, // Prevents the white box!
+        title: const Text(
+          'Daily Insights',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+        backgroundColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
+        actions: [
+          IconButton(
+            icon: const Icon(
+              Icons.download_rounded,
+              color: AppTheme.primaryPurple,
+            ),
+            tooltip: "Export ML Raw Data",
+            onPressed: () async {
+              // Fetch the folder where we save the CSVs
+              final directory = await getApplicationDocumentsDirectory();
+              final sessionDir = Directory('${directory.path}/sessions');
+
+              if (sessionDir.existsSync()) {
+                final files = sessionDir
+                    .listSync()
+                    .whereType<File>()
+                    .where((f) => f.path.endsWith('.csv'))
+                    .toList();
+
+                if (files.isEmpty) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("No raw data files found.")),
+                    );
+                  }
+                  return;
+                }
+
+                // Convert dart:io Files to share_plus XFiles
+                List<XFile> xFiles = files.map((f) => XFile(f.path)).toList();
+
+                // Trigger the native iOS/Android share sheet
+                await SharePlus.instance.share(
+                  ShareParams(files: xFiles, text: "Kavach X Raw ECG Data"),
+                );
+              }
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: windowsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator(color: AppTheme.primaryPurple)),
+        loading: () => const Center(
+          child: CircularProgressIndicator(color: AppTheme.primaryPurple),
+        ),
         error: (err, stack) => Center(child: Text('Error loading data: $err')),
         data: (windows) {
           if (windows.isEmpty) {
@@ -42,7 +91,7 @@ class InsightsScreen extends ConsumerWidget {
                   child: _buildChartCard(windows, isDark),
                 ),
               ),
-              
+
               // --- SESSION LIST HEADER ---
               const SliverToBoxAdapter(
                 child: Padding(
@@ -56,22 +105,23 @@ class InsightsScreen extends ConsumerWidget {
 
               // --- EXPANDABLE SESSION CARDS ---
               sessionsAsync.when(
-                loading: () => const SliverToBoxAdapter(child: SizedBox.shrink()),
-                error: (e, s) => const SliverToBoxAdapter(child: SizedBox.shrink()),
+                loading: () =>
+                    const SliverToBoxAdapter(child: SizedBox.shrink()),
+                error: (e, s) =>
+                    const SliverToBoxAdapter(child: SizedBox.shrink()),
                 data: (sessions) {
                   return SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        final session = sessions[index];
-                        return _buildSessionCard(session, isDark);
-                      },
-                      childCount: sessions.length,
-                    ),
+                    delegate: SliverChildBuilderDelegate((context, index) {
+                      final session = sessions[index];
+                      return _buildSessionCard(session, isDark);
+                    }, childCount: sessions.length),
                   );
                 },
               ),
-              
-              const SliverToBoxAdapter(child: SizedBox(height: 100)), // Bottom padding
+
+              const SliverToBoxAdapter(
+                child: SizedBox(height: 100),
+              ), // Bottom padding
             ],
           );
         },
@@ -88,7 +138,11 @@ class InsightsScreen extends ConsumerWidget {
           SizedBox(height: 16),
           Text(
             "No data recorded today.",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppTheme.mutedGray),
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.mutedGray,
+            ),
           ),
           SizedBox(height: 8),
           Text(
@@ -120,13 +174,16 @@ class InsightsScreen extends ConsumerWidget {
               color: AppTheme.textDark.withValues(alpha: 0.05),
               blurRadius: 20,
               offset: const Offset(0, 8),
-            )
+            ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("RMSSD Timeline", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+          const Text(
+            "RMSSD Timeline",
+            style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          ),
           const SizedBox(height: 24),
           Expanded(
             child: LineChart(
@@ -140,8 +197,12 @@ class InsightsScreen extends ConsumerWidget {
                   ),
                 ),
                 titlesData: FlTitlesData(
-                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  rightTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
                   bottomTitles: AxisTitles(
                     sideTitles: SideTitles(
                       showTitles: true,
@@ -150,8 +211,20 @@ class InsightsScreen extends ConsumerWidget {
                         // Only show labels every 6 hours
                         if (value % 6 != 0) return const SizedBox.shrink();
                         int hour = value.toInt();
-                        String label = hour == 0 || hour == 24 ? "12A" : hour == 12 ? "12P" : hour > 12 ? "${hour-12}P" : "${hour}A";
-                        return Text(label, style: const TextStyle(color: AppTheme.mutedGray, fontSize: 10));
+                        String label = hour == 0 || hour == 24
+                            ? "12A"
+                            : hour == 12
+                            ? "12P"
+                            : hour > 12
+                            ? "${hour - 12}P"
+                            : "${hour}A";
+                        return Text(
+                          label,
+                          style: const TextStyle(
+                            color: AppTheme.mutedGray,
+                            fontSize: 10,
+                          ),
+                        );
                       },
                       interval: 1,
                     ),
@@ -170,7 +243,9 @@ class InsightsScreen extends ConsumerWidget {
                     color: AppTheme.recoveryTeal,
                     barWidth: 3,
                     isStrokeCapRound: true,
-                    dotData: const FlDotData(show: false), // Hide dots for a clean line
+                    dotData: const FlDotData(
+                      show: false,
+                    ), // Hide dots for a clean line
                     belowBarData: BarAreaData(
                       show: true,
                       color: AppTheme.recoveryTeal.withValues(alpha: 0.1),
@@ -187,11 +262,12 @@ class InsightsScreen extends ConsumerWidget {
 
   Widget _buildSessionCard(Session session, bool isDark) {
     // Format Time strings
-    String startStr = "${session.startTime.hour.toString().padLeft(2, '0')}:${session.startTime.minute.toString().padLeft(2, '0')}";
-    String endStr = session.endTime != null 
-        ? "${session.endTime!.hour.toString().padLeft(2, '0')}:${session.endTime!.minute.toString().padLeft(2, '0')}" 
+    String startStr =
+        "${session.startTime.hour.toString().padLeft(2, '0')}:${session.startTime.minute.toString().padLeft(2, '0')}";
+    String endStr = session.endTime != null
+        ? "${session.endTime!.hour.toString().padLeft(2, '0')}:${session.endTime!.minute.toString().padLeft(2, '0')}"
         : "Ongoing";
-        
+
     // Calculate Duration
     String durationStr = "---";
     if (session.endTime != null) {
@@ -200,7 +276,9 @@ class InsightsScreen extends ConsumerWidget {
     }
 
     // Format Average RMSSD
-    String avgRmssdStr = session.averageRmssd != null ? "${session.averageRmssd!.toStringAsFixed(0)} ms" : "Processing...";
+    String avgRmssdStr = session.averageRmssd != null
+        ? "${session.averageRmssd!.toStringAsFixed(0)} ms"
+        : "Processing...";
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -230,11 +308,19 @@ class InsightsScreen extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   _buildStatColumn("Duration", durationStr),
-                  _buildStatColumn("Signal Quality", session.signalQuality != null ? "${session.signalQuality!.toStringAsFixed(1)}%" : "--"),
-                  _buildStatColumn("Status", session.endTime == null ? "Active" : "Saved"),
+                  _buildStatColumn(
+                    "Signal Quality",
+                    session.signalQuality != null
+                        ? "${session.signalQuality!.toStringAsFixed(1)}%"
+                        : "--",
+                  ),
+                  _buildStatColumn(
+                    "Status",
+                    session.endTime == null ? "Active" : "Saved",
+                  ),
                 ],
               ),
-            )
+            ),
           ],
         ),
       ),
@@ -245,9 +331,15 @@ class InsightsScreen extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.mutedGray)),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: AppTheme.mutedGray),
+        ),
         const SizedBox(height: 4),
-        Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+        ),
       ],
     );
   }

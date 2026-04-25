@@ -169,7 +169,7 @@ class SignalProcessorIsolate {
   }
 
   static void _computeAndSendRmssd(List<double> rrIntervals, SendPort mainPort) {
-    if (rrIntervals.length < 20) {
+    if (rrIntervals.length < 3) {
       mainPort.send(RmssdResult(
         rmssd: 0, sd1: 0, sd2: 0, currentBpm: 0, cleanRrCount: rrIntervals.length, isReliable: false,
       ));

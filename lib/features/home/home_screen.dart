@@ -3,9 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 
+import 'providers/raw_recording_provider.dart';
+import '../../core/ble/kavach_connection_provider.dart';
+import '../../shared/models/device_state.dart';
+
 import '../../theme/app_theme.dart';
 import 'providers/rmssd_provider.dart';
-import 'providers/live_chart_provider.dart'; // NEW
+import 'providers/live_chart_provider.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -13,7 +17,7 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final rmssdData = ref.watch(rmssdProvider);
-    final liveChartData = ref.watch(liveChartProvider); // NEW
+    final liveChartData = ref.watch(liveChartProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     Color zoneColor = AppTheme.mutedGray;
@@ -42,7 +46,7 @@ class HomeScreen extends ConsumerWidget {
         elevation: 0,
         centerTitle: false,
       ),
-      body: SingleChildScrollView( // Added scrollview to fit everything safely
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
@@ -136,29 +140,27 @@ class HomeScreen extends ConsumerWidget {
                     const Text("Live Session Trend", style: TextStyle(fontWeight: FontWeight.w600)),
                     const SizedBox(height: 16),
                     Expanded(
-                      // The SingleChildScrollView enables the infinite horizontal scrolling
                       child: SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
-                        reverse: true, // Auto-scrolls to the newest data on the right
+                        reverse: true, 
                         child: SizedBox(
-                          // Dynamically expand width based on data points, min 300px
                           width: math.max(MediaQuery.of(context).size.width - 64, liveChartData.length * 40.0),
                           child: LineChart(
                             LineChartData(
                               minY: 0,
-                              maxY: 120, // Max reasonable RMSSD
+                              maxY: 120, 
                               gridData: const FlGridData(show: false),
-                              titlesData: const FlTitlesData(show: false), // Hide axes for a clean look
+                              titlesData: const FlTitlesData(show: false), 
                               borderData: FlBorderData(show: false),
                               lineBarsData: [
                                 LineChartBarData(
                                   spots: liveChartData,
                                   isCurved: true,
                                   curveSmoothness: 0.3,
-                                  color: zoneColor, // Matches the current stress zone
+                                  color: zoneColor, 
                                   barWidth: 4,
                                   isStrokeCapRound: true,
-                                  dotData: const FlDotData(show: true), // Show dots so individual 30s windows are visible
+                                  dotData: const FlDotData(show: true), 
                                   belowBarData: BarAreaData(
                                     show: true,
                                     color: zoneColor.withValues(alpha: 0.1),
@@ -206,6 +208,34 @@ class HomeScreen extends ConsumerWidget {
           ],
         ),
       ),
+      // ==========================================
+      // ML DATA LOGGING BUTTON
+      // ==========================================
+      floatingActionButton: ref.watch(kavachConnectionProvider) == DeviceConnectionState.connected
+          ? FloatingActionButton.extended(
+              onPressed: () {
+                final isRecording = ref.read(rawRecordingProvider);
+                if (isRecording) {
+                  ref.read(kavachConnectionProvider.notifier).stopRawRecording();
+                  ref.read(rawRecordingProvider.notifier).setRecording(false);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ML Data Saved!")));
+                } else {
+                  ref.read(kavachConnectionProvider.notifier).startRawRecording();
+                  ref.read(rawRecordingProvider.notifier).setRecording(true);
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Recording Raw ML Data...")));
+                }
+              },
+              backgroundColor: ref.watch(rawRecordingProvider) ? AppTheme.stressRed : AppTheme.primaryPurple,
+              icon: Icon(
+                ref.watch(rawRecordingProvider) ? Icons.stop_rounded : Icons.fiber_manual_record_rounded, 
+                color: Colors.white
+              ),
+              label: Text(
+                ref.watch(rawRecordingProvider) ? "Stop Logging" : "Log ML Data",
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            )
+          : null,
     );
   }
 }
