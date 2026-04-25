@@ -52,6 +52,7 @@ dependencies:
   tflite_flutter: ^0.12.1
   share_plus: ^13.1.0
   path: ^1.9.1
+  google_generative_ai: ^0.4.7
 
 dev_dependencies:
   flutter_test:
