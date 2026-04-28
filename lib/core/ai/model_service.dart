@@ -22,19 +22,32 @@ class ModelService {
   }
 
   // The Inference Pipeline
-  StressZone classifyState(double rmssd, int bpm) {
-    if (!_isInitialized || _interpreter == null) {
-      // FALLBACK: If your ML model isn't in the assets folder yet, use our math rules
+  // The Inference Pipeline
+  // NEW: Added baselineRmssd and isCalibrated parameters
+  StressZone classifyState(double rmssd, int bpm, double baselineRmssd, bool isCalibrated) {
+    
+    // If we don't have 7 days of data, fallback to strict population ranges to be safe
+    if (!isCalibrated || baselineRmssd == 0) {
       if (rmssd > 50) return StressZone.recovered;
       if (rmssd >= 30) return StressZone.moderate;
       return StressZone.stressed;
     }
 
-    // TFLite Inference Execution
-    // Assuming your model takes [RMSSD, BPM] and outputs an array of 3 probabilities
-    var input = [[rmssd, bpm.toDouble()]];
-    var output = List.filled(1 * 3, 0.0).reshape([1, 3]);
+    if (!_isInitialized || _interpreter == null) {
+      // PERSONALIZED FALLBACK: Calculate zones based on the user's 30-day average!
+      // Recovered = 15% above baseline. Stressed = 15% below baseline.
+      final upperThreshold = baselineRmssd * 1.15;
+      final lowerThreshold = baselineRmssd * 0.85;
 
+      if (rmssd > upperThreshold) return StressZone.recovered;
+      if (rmssd >= lowerThreshold) return StressZone.moderate;
+      return StressZone.stressed;
+    }
+
+    // TFLite Inference Execution (Assuming model is trained on [RMSSD, BPM, BASELINE])
+    var input = [[rmssd, bpm.toDouble(), baselineRmssd]]; // Feed baseline to ML!
+    var output = List.filled(1 * 3, 0.0).reshape([1, 3]);
+    
     try {
       _interpreter!.run(input, output);
       

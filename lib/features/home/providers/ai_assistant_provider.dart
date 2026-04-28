@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'rmssd_provider.dart';
 import '../../../core/ai/model_service.dart';
 import '../../../core/ai/offline_templates.dart';
-import '../../../core/ai/api_client.dart'; // NEW: Import the Cloud API Client
+import '../../../core/ai/api_client.dart'; 
+import '../../profile/providers/baseline_provider.dart'; 
+import '../../../core/notifications/notification_service.dart'; // Handles our background alerts
 
 // Represents the data sent to the UI Card
 class AiMessageState {
@@ -28,8 +30,13 @@ class AiAssistantNotifier extends Notifier<AiMessageState> {
     ref.listen(rmssdProvider, (previous, next) {
       if (next == null || !next.isReliable) return;
 
-      // 2. Run TFLite Inference
-      final newZone = modelService.classifyState(next.rmssd, next.currentBpm);
+      // Grab the current baseline state
+      final baselineState = ref.read(baselineProvider).value;
+      final baseline = baselineState?.averageRmssd ?? 0.0;
+      final isCalibrated = baselineState?.isCalibrated ?? false;
+
+      // 2. Run TFLite Inference (Now with personal data!)
+      final newZone = modelService.classifyState(next.rmssd, next.currentBpm, baseline, isCalibrated);
 
       // 3. Zone Change Detection
       if (newZone != _currentZone) {
@@ -83,16 +90,28 @@ class AiAssistantNotifier extends Notifier<AiMessageState> {
           message: cloudMessage, 
           actionLabel: zone == StressZone.stressed ? "Breathe" : "Log Note"
         );
+        
+        // NEW: Fire the OS Push Notification if Stressed!
+        if (zone == StressZone.stressed) {
+          NotificationService.showStressAlert(title: "Dhritam Alert", body: cloudMessage);
+        }
         return; 
       }
     }
     
     // If rate-limited, offline, or the API fails, fall back to the local templates instantly
     await Future.delayed(const Duration(milliseconds: 800)); // Simulate thinking
+    
+    final fallbackMessage = OfflineTemplates.getMessage(zone);
     state = AiMessageState(
-      message: OfflineTemplates.getMessage(zone), 
+      message: fallbackMessage, 
       actionLabel: zone == StressZone.stressed ? "Breathe" : "Log Note"
     );
+
+    // NEW: Fire the OS Push Notification if Stressed! (Even if offline)
+    if (zone == StressZone.stressed) {
+      NotificationService.showStressAlert(title: "Dhritam Alert", body: fallbackMessage);
+    }
   }
 }
 

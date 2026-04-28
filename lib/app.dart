@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'theme/app_theme.dart';
-import 'shared/widgets/main_layout.dart';
+import 'features/home/main_scaffold.dart'; // NEW: Import the root scaffold
 
 class DhritamApp extends StatelessWidget {
   const DhritamApp({super.key});
@@ -16,7 +16,7 @@ class DhritamApp extends StatelessWidget {
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: ThemeMode.system, 
-        home: const MainLayout(),
+        home: const MainScaffold(), // UPDATED: Point to our new Navigation Scaffold
         debugShowCheckedModeBanner: false,
       ),
     );
