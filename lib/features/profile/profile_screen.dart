@@ -5,9 +5,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../theme/app_theme.dart';
-import 'providers/baseline_provider.dart'; // NEW: Import the baseline provider
+import 'providers/baseline_provider.dart'; 
 
-// Changed to ConsumerStatefulWidget to combine local state (files) with Riverpod (baseline)
+import '../../core/db/app_database.dart';
+import '../../core/db/mock_data_engine.dart';
+
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
 
@@ -24,7 +26,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     super.initState();
     _loadSessions();
     
-    // Tell the baseline engine to refresh when the screen opens
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(baselineProvider.notifier).refreshBaseline();
     });
@@ -46,7 +47,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       debugPrint("Error loading sessions: $e");
     } finally {
       await Future.delayed(const Duration(milliseconds: 300));
-      setState(() => _isLoadingFiles = false);
+      if (mounted) {
+        setState(() => _isLoadingFiles = false);
+      }
     }
   }
 
@@ -67,7 +70,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baselineAsync = ref.watch(baselineProvider); // Watch the AI baseline
+    
+    final baselineAsync = ref.watch(baselineProvider); 
+    final baselineState = baselineAsync.value;
+    final isLoadingBaseline = baselineAsync.isLoading;
 
     return Scaffold(
       appBar: AppBar(
@@ -75,6 +81,31 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
+        actions: [
+          // THE DEVELOPER MAGIC BUTTON
+          IconButton(
+            icon: const Icon(Icons.auto_fix_high_rounded, color: AppTheme.moderateAmber),
+            tooltip: "Inject 21 Days of Data",
+            onPressed: () async {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Injecting 21 days of data... Please wait."))
+              );
+              
+              await MockDataEngine.generateHistoricalData(appDb);
+              
+              // Force the UI to refresh with the new data
+              await _loadSessions();
+              await ref.read(baselineProvider.notifier).refreshBaseline();
+              
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Database populated successfully!"))
+                );
+              }
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: RefreshIndicator(
         color: AppTheme.primaryPurple,
@@ -91,61 +122,53 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               // ==========================================
               // TOP HALF: WEEK 5 BASELINE & AI PATTERNS
               // ==========================================
-              baselineAsync.when(
-                loading: () => const Center(
-                  child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator(color: AppTheme.primaryPurple))
-                ),
-                error: (err, stack) => Center(child: Text('Error loading baseline: $err')),
-                data: (baselineState) {
-                  return Column(
+              
+              // 1. Permanent Header
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 36,
+                    backgroundColor: AppTheme.primaryPurple.withValues(alpha: 0.1),
+                    child: const Text('HP', style: TextStyle(color: AppTheme.primaryPurple, fontSize: 24, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(width: 16),
+                  Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 36,
-                            backgroundColor: AppTheme.primaryPurple.withValues(alpha: 0.1),
-                            child: const Text('HP', style: TextStyle(color: AppTheme.primaryPurple, fontSize: 24, fontWeight: FontWeight.bold)),
-                          ),
-                          const SizedBox(width: 16),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text("Harshit Pachahara", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 4),
-                              Text(
-                                baselineState.isCalibrated ? "Calibrated • Active" : "Calibrating",
-                                style: TextStyle(
-                                  fontSize: 14, 
-                                  fontWeight: FontWeight.w600, 
-                                  color: baselineState.isCalibrated ? AppTheme.recoveryTeal : AppTheme.moderateAmber
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                      const Text("Harshit Pachahara", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      Text(
+                        baselineState?.isCalibrated == true ? "Calibrated • Active" : "Calibrating",
+                        style: TextStyle(
+                          fontSize: 14, 
+                          fontWeight: FontWeight.w600, 
+                          color: baselineState?.isCalibrated == true ? AppTheme.recoveryTeal : AppTheme.moderateAmber
+                        ),
                       ),
-                      
-                      const SizedBox(height: 32),
-
-                      if (!baselineState.isCalibrated) ...[
-                        _buildCalibrationCard(baselineState, isDark),
-                        const SizedBox(height: 24),
-                      ],
-
-                      const Text("Your Personal Baseline", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 16),
-                      _buildBaselineCard(baselineState, isDark),
-                      
-                      const SizedBox(height: 24),
-                      
-                      const Text("Pattern Insights", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 16),
-                      _buildPatternCard(baselineState, isDark),
                     ],
-                  );
-                },
+                  ),
+                ],
               ),
+              
+              const SizedBox(height: 32),
+
+              // 2. Calibration Progress (Always visible if uncalibrated, even when loading)
+              if (baselineState == null || !baselineState.isCalibrated) ...[
+                _buildCalibrationCard(baselineState, isDark),
+                const SizedBox(height: 24),
+              ],
+
+              // 3. Baseline Data
+              const Text("Your Personal Baseline", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              _buildBaselineCard(baselineState, isDark),
+              
+              const SizedBox(height: 24),
+              
+              // 4. AI Pattern Insights
+              const Text("Pattern Insights", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              _buildPatternCard(baselineState, isLoadingBaseline, isDark),
 
               const SizedBox(height: 40),
               const Divider(),
@@ -160,9 +183,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               const SizedBox(height: 16),
 
               if (_isLoadingFiles)
-                const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator(color: AppTheme.primaryPurple)))
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(32), 
+                    child: CircularProgressIndicator(color: AppTheme.primaryPurple)
+                  )
+                )
               else if (_sessionFiles.isEmpty)
-                _buildEmptyState()
+                _buildEmptyState(isDark)
               else
                 ListView.builder(
                   shrinkWrap: true,
@@ -184,8 +212,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   // --- WEEK 5 BASELINE UI HELPERS ---
 
-  Widget _buildCalibrationCard(BaselineState state, bool isDark) {
-    double progress = state.daysLogged / 7.0;
+  Widget _buildCalibrationCard(BaselineState? state, bool isDark) {
+    double progress = (state?.daysLogged ?? 0) / 7.0;
+    int daysRemaining = state?.daysRemaining ?? 7;
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -200,7 +230,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text("Calibration Phase", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              Text("${state.daysRemaining} days remaining", style: const TextStyle(color: AppTheme.moderateAmber, fontWeight: FontWeight.bold)),
+              Text("$daysRemaining days remaining", style: const TextStyle(color: AppTheme.moderateAmber, fontWeight: FontWeight.bold)),
             ],
           ),
           const SizedBox(height: 12),
@@ -221,7 +251,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
-  Widget _buildBaselineCard(BaselineState state, bool isDark) {
+  Widget _buildBaselineCard(BaselineState? state, bool isDark) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
@@ -236,7 +266,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       child: Column(
         children: [
           Text(
-            state.averageRmssd > 0 ? state.averageRmssd.toStringAsFixed(0) : "--",
+            (state != null && state.averageRmssd > 0) ? state.averageRmssd.toStringAsFixed(0) : "--",
             style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w800, color: AppTheme.primaryPurple, height: 1.0),
           ),
           const SizedBox(height: 4),
@@ -246,9 +276,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     );
   }
 
-  Widget _buildPatternCard(BaselineState state, bool isDark) {
+  Widget _buildPatternCard(BaselineState? state, bool isLoading, bool isDark) {
     String patternText = "Keep wearing your device to generate pattern insights.";
-    if (state.isCalibrated) {
+    
+    if (isLoading && state == null) {
+      patternText = "Analyzing nervous system baseline...";
+    } else if (state != null && state.isCalibrated) {
       if (state.averageRmssd > 45) {
         patternText = "Your parasympathetic system is highly active. You recover quickly from stressors.";
       } else if (state.averageRmssd > 25) {
@@ -257,6 +290,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         patternText = "Your baseline indicates elevated chronic stress. Focus on deep rest protocols.";
       }
     }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -277,20 +311,32 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   // --- ORIGINAL FILE UI HELPERS ---
 
-  Widget _buildEmptyState() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        SizedBox(height: MediaQuery.of(context).size.height * 0.05),
-        const Icon(Icons.monitor_heart_outlined, size: 64, color: AppTheme.mutedGray),
-        const SizedBox(height: 16),
-        const Text("No Raw Exports Yet", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 40),
-          child: Text("Use the 'Log ML Data' button on the Home tab to capture datasets.", textAlign: TextAlign.center, style: TextStyle(fontSize: 14, color: AppTheme.mutedGray, height: 1.4)),
-        ),
-      ],
+  Widget _buildEmptyState(bool isDark) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(32),
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.darkCard : AppTheme.cardWhite,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.mutedGray.withValues(alpha: 0.1)),
+        boxShadow: isDark ? [] : [
+          BoxShadow(color: AppTheme.textDark.withValues(alpha: 0.05), blurRadius: 20, offset: const Offset(0, 8))
+        ],
+      ),
+      child: const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.folder_open_rounded, size: 48, color: AppTheme.mutedGray),
+          SizedBox(height: 16),
+          Text("No Raw Exports Yet", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          SizedBox(height: 8),
+          Text(
+            "Use the 'Log ML Data' button on the Home tab to capture datasets.", 
+            textAlign: TextAlign.center, 
+            style: TextStyle(fontSize: 14, color: AppTheme.mutedGray, height: 1.4)
+          ),
+        ],
+      ),
     );
   }
 

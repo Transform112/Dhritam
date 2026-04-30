@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../theme/app_theme.dart';
-import 'providers/train_provider.dart'; // Ensure this points to our new provider
+import 'providers/train_provider.dart'; 
+import 'alpha_drift_screen.dart'; 
 
 class TrainScreen extends ConsumerWidget {
   const TrainScreen({super.key});
@@ -194,7 +195,7 @@ class TrainScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 32),
               
-              // Start/Stop Button
+              // Start/Stop Breathing Button
               SizedBox(
                 width: double.infinity,
                 height: 56,
@@ -217,6 +218,29 @@ class TrainScreen extends ConsumerWidget {
                   ),
                 ),
               ),
+
+              // NEW: BCI Game Launcher Button
+              const SizedBox(height: 16),
+              if (!state.isActive) // Only show if not currently breathing
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.psychology_rounded),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const AlphaDriftScreen()),
+                      );
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.primaryPurple,
+                      side: const BorderSide(color: AppTheme.primaryPurple),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    label: const Text("Play Alpha Drift (BCI)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  ),
+                ),
             ],
           ),
         ),
@@ -326,7 +350,6 @@ class TrainScreen extends ConsumerWidget {
               height: 56,
               child: ElevatedButton(
                 onPressed: () {
-                  // Magic Riverpod Trick: Invalidate the provider to completely reset it to default!
                   ref.invalidate(trainProvider);
                 },
                 style: ElevatedButton.styleFrom(

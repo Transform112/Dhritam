@@ -109,7 +109,7 @@ class TrainNotifier extends Notifier<TrainSessionState> {
       secondsRemainingInPhase: state.selectedPattern.inhale,
     );
 
-    // TODO: Load Binaural Beat Audio (We will add an MP3 asset later!)
+    // TODOdone: Load Binaural Beat Audio (We will add an MP3 asset later!)
     await _audioPlayer.setAsset('assets/audio/binaural_432hz.mp3');
     _audioPlayer.setLoopMode(LoopMode.one);
     _audioPlayer.play();

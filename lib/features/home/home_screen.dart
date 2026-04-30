@@ -10,7 +10,7 @@ import '../../shared/models/device_state.dart';
 import '../../theme/app_theme.dart';
 import 'providers/rmssd_provider.dart';
 import 'providers/live_chart_provider.dart';
-import 'providers/ai_assistant_provider.dart'; // NEW: Import the AI Provider
+import 'providers/ai_assistant_provider.dart'; 
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -19,11 +19,12 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final rmssdData = ref.watch(rmssdProvider);
     final liveChartData = ref.watch(liveChartProvider);
-    final aiState = ref.watch(aiAssistantProvider); // NEW: Watch the AI state
+    final aiState = ref.watch(aiAssistantProvider); 
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     Color zoneColor = AppTheme.mutedGray;
-    String zoneLabel = "Calibrating...";
+    // UX Polish: More descriptive default empty state
+    String zoneLabel = "Waiting for device..."; 
     
     if (rmssdData != null && rmssdData.isReliable) {
       if (rmssdData.rmssd > 50) {
@@ -109,7 +110,7 @@ class HomeScreen extends ConsumerWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.favorite, color: AppTheme.stressRed, size: 18),
+                      Icon(Icons.favorite, color: rmssdData == null ? AppTheme.mutedGray : AppTheme.stressRed, size: 18),
                       const SizedBox(width: 6),
                       Text(
                         rmssdData == null || !rmssdData.isReliable ? "-- BPM" : "${rmssdData.currentBpm} BPM",
@@ -124,64 +125,88 @@ class HomeScreen extends ConsumerWidget {
             const SizedBox(height: 24),
 
             // ==========================================
-            // LIVE TIMELINE CHART (Horizontal Scroll)
+            // LIVE TIMELINE CHART (Permanent Empty State)
             // ==========================================
-            if (liveChartData.isNotEmpty) ...[
-              Container(
-                height: 200,
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: isDark ? AppTheme.darkCard : AppTheme.cardWhite,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: AppTheme.mutedGray.withValues(alpha: 0.1)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text("Live Session Trend", style: TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 16),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        reverse: true, 
-                        child: SizedBox(
-                          width: math.max(MediaQuery.of(context).size.width - 64, liveChartData.length * 40.0),
-                          child: LineChart(
-                            LineChartData(
-                              minY: 0,
-                              maxY: 120, 
-                              gridData: const FlGridData(show: false),
-                              titlesData: const FlTitlesData(show: false), 
-                              borderData: FlBorderData(show: false),
-                              lineBarsData: [
-                                LineChartBarData(
-                                  spots: liveChartData,
-                                  isCurved: true,
-                                  curveSmoothness: 0.3,
-                                  color: zoneColor, 
-                                  barWidth: 4,
-                                  isStrokeCapRound: true,
-                                  dotData: const FlDotData(show: true), 
-                                  belowBarData: BarAreaData(
-                                    show: true,
-                                    color: zoneColor.withValues(alpha: 0.1),
+            Container(
+              height: 200,
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isDark ? AppTheme.darkCard : AppTheme.cardWhite,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: AppTheme.mutedGray.withValues(alpha: 0.1)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text("Live Session Trend", style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // The Chart (Draws a flat faint line if empty)
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          reverse: true, 
+                          child: SizedBox(
+                            width: math.max(MediaQuery.of(context).size.width - 64, liveChartData.isEmpty ? 0 : liveChartData.length * 40.0),
+                            child: LineChart(
+                              LineChartData(
+                                minY: 0,
+                                maxY: 120, 
+                                gridData: const FlGridData(show: false),
+                                titlesData: const FlTitlesData(show: false), 
+                                borderData: FlBorderData(show: false),
+                                lineBarsData: [
+                                  LineChartBarData(
+                                    // Provide dummy spots if empty so the chart renders its frame
+                                    spots: liveChartData.isEmpty ? const [FlSpot(0, 0), FlSpot(1, 0)] : liveChartData,
+                                    isCurved: true,
+                                    curveSmoothness: 0.3,
+                                    color: liveChartData.isEmpty ? AppTheme.mutedGray.withValues(alpha: 0.2) : zoneColor, 
+                                    barWidth: 4,
+                                    isStrokeCapRound: true,
+                                    dotData: FlDotData(show: liveChartData.isNotEmpty), // Hide dots if empty
+                                    belowBarData: BarAreaData(
+                                      show: true,
+                                      color: liveChartData.isEmpty 
+                                          ? AppTheme.mutedGray.withValues(alpha: 0.05) 
+                                          : zoneColor.withValues(alpha: 0.1),
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                      ),
+                        // UX Polish: The Empty State Overlay
+                        if (liveChartData.isEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isDark ? AppTheme.darkCard.withValues(alpha: 0.8) : AppTheme.cardWhite.withValues(alpha: 0.8),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.sensors_off_rounded, color: AppTheme.mutedGray, size: 16),
+                                SizedBox(width: 8),
+                                Text("Awaiting biometrics", style: TextStyle(color: AppTheme.mutedGray, fontWeight: FontWeight.w600)),
+                              ],
+                            ),
+                          ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 24),
-            ],
+            ),
+            const SizedBox(height: 24),
             
             // ==========================================
-            // DHRITAM AI ASSISTANT (Replaced Placeholder)
+            // DHRITAM AI ASSISTANT 
             // ==========================================
             AnimatedContainer(
               duration: const Duration(milliseconds: 500),

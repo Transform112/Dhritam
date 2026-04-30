@@ -6,8 +6,11 @@ import 'app.dart';
 import 'core/ble/foreground_task_handler.dart';
 import 'core/audio/audio_session_manager.dart';
 import 'core/db/legacy_cleanup.dart';
-import 'core/ai/model_service.dart'; // NEW: Import the Model Service
-import 'core/notifications/notification_service.dart'; // NEW
+import 'core/ai/model_service.dart'; 
+import 'core/notifications/notification_service.dart'; 
+
+// NEW: Import the WorkManager background engine
+import 'core/background/background_engine.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,10 +21,15 @@ void main() async {
   initForegroundTask();
   await initAudioSession();
 
-  // NEW: Boot up the TFLite inference engine!
+  // Boot up the TFLite inference engine!
   await modelService.initModel();
-  // NEW: Boot the notification engine
+  
+  // Boot the notification engine
   await NotificationService.init();
+
+  // NEW: Boot the Nightly WorkManager Engine (Layer 3)
+  await BackgroundEngine.initialize();
+  await BackgroundEngine.scheduleNightlyJob();
 
   runApp(
     const ProviderScope(
