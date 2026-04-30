@@ -5,6 +5,10 @@ import 'home_screen.dart';
 import '../insights/insights_screen.dart';
 import '../profile/profile_screen.dart';
 
+// THE MISSING IMPORTS BASED ON YOUR DIRECTORY
+import '../devices/devices_screen.dart'; 
+import '../train/train_screen.dart'; 
+
 class MainScaffold extends StatefulWidget {
   const MainScaffold({super.key});
 
@@ -15,9 +19,11 @@ class MainScaffold extends StatefulWidget {
 class _MainScaffoldState extends State<MainScaffold> {
   int _currentIndex = 0;
 
-  // These are the three screens we've built!
+  // UPDATED: All 5 screens are now in the stack!
   final List<Widget> _screens = const [
     HomeScreen(),
+    DevicesScreen(), // Tab 1: Bluetooth Connection
+    TrainScreen(),   // Tab 2: Alpha Drift Game
     InsightsScreen(),
     ProfileScreen(),
   ];
@@ -27,8 +33,6 @@ class _MainScaffoldState extends State<MainScaffold> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
-      // We use an IndexedStack so the screens don't reload and lose their state 
-      // when you tap between tabs.
       body: IndexedStack(
         index: _currentIndex,
         children: _screens,
@@ -47,6 +51,18 @@ class _MainScaffoldState extends State<MainScaffold> {
             icon: Icon(Icons.favorite_outline_rounded),
             selectedIcon: Icon(Icons.favorite_rounded, color: AppTheme.primaryPurple),
             label: 'Home',
+          ),
+          // NEW: Devices Tab
+          NavigationDestination(
+            icon: Icon(Icons.bluetooth_connected_outlined),
+            selectedIcon: Icon(Icons.bluetooth_connected_rounded, color: AppTheme.primaryPurple),
+            label: 'Devices',
+          ),
+          // NEW: Alpha Drift / Train Tab
+          NavigationDestination(
+            icon: Icon(Icons.sports_esports_outlined),
+            selectedIcon: Icon(Icons.sports_esports_rounded, color: AppTheme.primaryPurple),
+            label: 'Train',
           ),
           NavigationDestination(
             icon: Icon(Icons.insights_outlined),

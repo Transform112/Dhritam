@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'theme/app_theme.dart';
-import 'features/home/main_scaffold.dart'; // NEW: Import the root scaffold
+import 'features/home/main_scaffold.dart'; 
+// NEW: Import the permissions screen
+import 'features/permissions/permissions_screen.dart'; 
 
 class DhritamApp extends StatelessWidget {
   const DhritamApp({super.key});
@@ -16,7 +18,9 @@ class DhritamApp extends StatelessWidget {
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: ThemeMode.system, 
-        home: const MainScaffold(), // UPDATED: Point to our new Navigation Scaffold
+        // UPDATED: The app now launches the Permissions Screen first.
+        // Once granted, it automatically routes to the MainScaffold!
+        home: const PermissionsScreen(nextScreen: MainScaffold()), 
         debugShowCheckedModeBanner: false,
       ),
     );

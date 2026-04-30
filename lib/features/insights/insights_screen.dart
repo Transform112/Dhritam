@@ -10,9 +10,9 @@ import '../../theme/app_theme.dart';
 import '../../core/db/app_database.dart';
 import 'providers/insights_provider.dart';
 
-import 'tabs/this_week_tab.dart'; // NEW
-import 'tabs/patterns_tab.dart'; // NEW
-import 'tabs/reports_tab.dart'; // NEW
+import 'tabs/this_week_tab.dart'; 
+import 'tabs/patterns_tab.dart'; 
+import 'tabs/reports_tab.dart'; 
 
 class InsightsScreen extends ConsumerWidget {
   const InsightsScreen({super.key});
@@ -26,10 +26,11 @@ class InsightsScreen extends ConsumerWidget {
     final windowsAsync = ref.watch(todaysWindowsProvider);
 
     return DefaultTabController(
-      length: 4, // We now have 4 tabs!
+      length: 4, 
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Insights', style: TextStyle(fontWeight: FontWeight.w600)),
+          // FIXED: AppBar Title Color
+          title: Text('Insights', style: TextStyle(fontWeight: FontWeight.w600, color: isDark ? Colors.white : AppTheme.textDark)),
           backgroundColor: Colors.transparent,
           elevation: 0,
           scrolledUnderElevation: 0,
@@ -58,7 +59,6 @@ class InsightsScreen extends ConsumerWidget {
             ),
             const SizedBox(width: 8),
           ],
-          // NEW: The 4-Tab Navigation Bar
           bottom: const TabBar(
             isScrollable: true,
             tabAlignment: TabAlignment.start,
@@ -75,19 +75,11 @@ class InsightsScreen extends ConsumerWidget {
           ),
         ),
         
-        // NEW: The Tab Contents
         body: TabBarView(
           children: [
-            // TAB 1: TODAY (Your existing, fully functional code)
             _buildTodayTab(windowsAsync, sessionsAsync, isDark),
-            
-            // TAB 2: THIS WEEK (Placeholder)
             const ThisWeekTab(),
-            
-            // TAB 3: PATTERNS (Placeholder)
             const PatternsTab(),
-            
-            // TAB 4: REPORTS (Placeholder)
             const ReportsTab(),
           ],
         ),
@@ -96,7 +88,7 @@ class InsightsScreen extends ConsumerWidget {
   }
 
   // ==========================================
-  // TAB 1: TODAY (Your Existing Logic)
+  // TAB 1: TODAY 
   // ==========================================
   Widget _buildTodayTab(AsyncValue<List<HrvWindow>> windowsAsync, AsyncValue<List<Session>> sessionsAsync, bool isDark) {
     return windowsAsync.when(
@@ -111,10 +103,11 @@ class InsightsScreen extends ConsumerWidget {
                 child: _buildChartCard(windows, isDark),
               ),
             ),
-            const SliverToBoxAdapter(
+            SliverToBoxAdapter(
               child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                child: Text("Today's Sessions", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                // FIXED: Heading text color
+                child: Text("Today's Sessions", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : AppTheme.textDark)),
               ),
             ),
             sessionsAsync.when(
@@ -156,7 +149,7 @@ class InsightsScreen extends ConsumerWidget {
   }
 
   // ==========================================
-  // EXISTING UI COMPONENTS (Unchanged)
+  // UI COMPONENTS 
   // ==========================================
   Widget _buildChartCard(List<HrvWindow> windows, bool isDark) {
     List<FlSpot> spots = windows.isEmpty
@@ -178,7 +171,8 @@ class InsightsScreen extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("RMSSD Timeline", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+          // FIXED: Chart Heading color
+          Text("RMSSD Timeline", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: isDark ? Colors.white : AppTheme.textDark)),
           const SizedBox(height: 24),
           Expanded(
             child: Stack(
@@ -261,7 +255,8 @@ class InsightsScreen extends ConsumerWidget {
         data: ThemeData().copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
           iconColor: AppTheme.primaryPurple, collapsedIconColor: AppTheme.mutedGray,
-          title: Text("$startStr - $endStr", style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+          // FIXED: The timing heading title color
+          title: Text("$startStr - $endStr", style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: isDark ? Colors.white : AppTheme.textDark)),
           subtitle: Text("Average RMSSD: $avgRmssdStr", style: const TextStyle(color: AppTheme.mutedGray, fontSize: 13)),
           children: [
             Padding(
@@ -269,9 +264,10 @@ class InsightsScreen extends ConsumerWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _buildStatColumn("Duration", durationStr),
-                  _buildStatColumn("Signal Quality", session.signalQuality != null ? "${session.signalQuality!.toStringAsFixed(1)}%" : "--"),
-                  _buildStatColumn("Status", session.endTime == null ? "Active" : "Saved"),
+                  // FIXED: Passed isDark to the stat column
+                  _buildStatColumn("Duration", durationStr, isDark),
+                  _buildStatColumn("Signal Quality", session.signalQuality != null ? "${session.signalQuality!.toStringAsFixed(1)}%" : "--", isDark),
+                  _buildStatColumn("Status", session.endTime == null ? "Active" : "Saved", isDark),
                 ],
               ),
             ),
@@ -281,13 +277,14 @@ class InsightsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildStatColumn(String label, String value) {
+  // FIXED: Added isDark parameter and updated text color
+  Widget _buildStatColumn(String label, String value, bool isDark) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.mutedGray)),
         const SizedBox(height: 4),
-        Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+        Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: isDark ? Colors.white : AppTheme.textDark)),
       ],
     );
   }
