@@ -3,7 +3,7 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import 'model_service.dart';
 
 class AiApiClient {
-  // TODO: Paste your actual Gemini API key here
+  // TODOs: Paste your actual Gemini API key here
   static const String _apiKey = "AIzaSyDTA0MxEETevJUDT-wGfIZRuZ_4uzj4Ztk"; 
   
   static Future<String?> generateContextualInsight(double rmssd, int bpm, StressZone zone) async {
